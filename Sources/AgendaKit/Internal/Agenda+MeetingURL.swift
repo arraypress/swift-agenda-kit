@@ -3,6 +3,7 @@
 //  SwiftAgenda
 //
 //  Digging the video-call link out of an event's free-text fields.
+//  The catalogue and the rules live in Support/; this is the public door.
 //
 //  Created by David Sherlock on 7/19/26.
 //
@@ -11,41 +12,39 @@ import Foundation
 
 extension Agenda {
 
-    /// Video-call URL shapes, most specific first.
+    /// The video call an event's text points at — which service, and the link.
     ///
-    /// Ordered so a Zoom link inside a body of text wins over the generic fallback,
-    /// and so an event carrying both a dial-in note and a real link resolves to the
-    /// link.
-    private static let meetingPatterns = [
-        #"https://[\w.-]*zoom\.us/[\w/?=&.-]+"#,
-        #"https://teams\.microsoft\.com/[\w/?=&%.#-]+"#,
-        #"https://teams\.live\.com/[\w/?=&%.#-]+"#,
-        #"https://meet\.google\.com/[\w-]+"#,
-        #"https://[\w.-]*webex\.com/[\w/?=&.-]+"#,
-        #"https://[\w.-]*gotomeeting\.com/[\w/?=&.-]+"#,
-        #"https://[\w.-]*bluejeans\.com/[\w/?=&.-]+"#,
-        #"https://whereby\.com/[\w-]+"#,
-        #"https://meet\.jit\.si/[\w-]+"#
-    ]
+    /// Searches notes, location, and the URL field together — organisers put the link
+    /// in whichever one their client chose, and there is no reliable convention. Before
+    /// matching, HTML is flattened (`&amp;` decoded, `href` targets kept) and Outlook Safe
+    /// Links and Google redirect wrappers are peeled off, so what comes back is the
+    /// service's own address.
+    ///
+    /// Specific services beat any fallback, and direct call links beat the wrapper links
+    /// that forward to one (Gong, Chorus, Reclaim). A link inside a
+    /// `----( Video Call )----` notes block beats everything, being an explicit statement
+    /// rather than a guess.
+    ///
+    /// - Returns: The call, or `nil` when no recognised service's link appears. An
+    ///   unrecognised link is not treated as a call.
+    public static func videoCall(notes: String?, location: String?, url: String?) -> VideoCall? {
+        VideoCallDetection.videoCall(notes: notes, location: location, url: url)
+    }
 
     /// The first video-call link found across an event's text fields.
     ///
-    /// Searches notes, location, and the URL field together — organizers put the link
-    /// in whichever one their client chose, and there is no reliable convention.
+    /// The single-string form of ``videoCall(notes:location:url:)``, kept for callers that
+    /// only want a link to open.
     ///
     /// - Returns: The matched URL, the raw `url` field when nothing matches but a URL
     ///   exists, or `nil` when the event has no link at all.
     public static func meetingURL(notes: String?, location: String?, url: String?) -> String? {
-        let haystack = [notes, location, url].compactMap { $0 }.joined(separator: " ")
-        guard !haystack.isEmpty else { return nil }
+        VideoCallDetection.meetingURL(notes: notes, location: location, url: url)
+    }
 
-        let range = NSRange(haystack.startIndex..<haystack.endIndex, in: haystack)
-        for pattern in meetingPatterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-                  let match = regex.firstMatch(in: haystack, options: [], range: range),
-                  let matched = Range(match.range, in: haystack) else { continue }
-            return String(haystack[matched])
-        }
-        return url?.nilIfBlank
+    /// The service a single link belongs to, or `nil` when it is not a recognised
+    /// video-call link. The link is taken as given — wrappers are not unwrapped here.
+    public static func videoCallService(of url: String) -> VideoCallService? {
+        VideoCallDetection.service(of: url)
     }
 }

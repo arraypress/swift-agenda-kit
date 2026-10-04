@@ -30,6 +30,12 @@ public struct AgendaEvent: Codable, Sendable, Equatable, Identifiable {
     /// shares one. Store it to re-find an event later; match on ``id`` within a run.
     public let externalId: String?
 
+    /// EventKit's calendar-item identifier — distinct from ``id``, and the one
+    /// Calendar.app's `ical://ekevent/` links take. Local to this Mac, like ``id``.
+    ///
+    /// `nil` on records built by hand or decoded from JSON written before it existed.
+    public let calendarItemId: String?
+
     /// The event's title, or "Untitled" when it has none.
     public let title: String
 
@@ -98,8 +104,15 @@ public struct AgendaEvent: Codable, Sendable, Equatable, Identifiable {
     /// calendar. Nil for everything else.
     public let birthdayContactId: String?
 
-    /// The first video-call link found in the notes, location, or URL fields.
+    /// The first video-call link found in the notes, location, or URL fields, falling
+    /// back to the URL field itself. See ``videoCall`` for the service as well.
     public let meetingURL: String?
+
+    /// The video call this event points at — the service and its unwrapped join link.
+    ///
+    /// Unlike ``meetingURL`` there is no fallback: an event whose only link is an agenda
+    /// document has no video call. `nil` on JSON written before this field existed.
+    public let videoCall: VideoCall?
 
     /// When the event was created, when the calendar records it.
     public let createdAt: Date?
@@ -147,16 +160,19 @@ public struct AgendaEvent: Codable, Sendable, Equatable, Identifiable {
     /// Creates an event record. Reads build these from `EKEvent`; the memberwise form
     /// exists for tests and for callers assembling results by hand.
     public init(id: String, title: String, calendar: String, startsAt: Date, endsAt: Date,
-                isAllDay: Bool, externalId: String? = nil, recurrence: Recurrence? = nil,
+                isAllDay: Bool, externalId: String? = nil, calendarItemId: String? = nil,
+                recurrence: Recurrence? = nil,
                 alarms: [AgendaAlarm] = [], isDetached: Bool = false, occurrenceDate: Date? = nil,
                 availability: AgendaAvailability = .busy, status: AgendaStatus = .none,
                 location: String? = nil, notes: String? = nil, url: String? = nil,
                 timeZone: String? = nil, structuredLocation: AgendaLocation? = nil,
                 organizer: String? = nil, attendees: [AgendaAttendee] = [],
                 birthdayContactId: String? = nil, meetingURL: String? = nil,
+                videoCall: VideoCall? = nil,
                 createdAt: Date? = nil, modifiedAt: Date? = nil) {
         self.id = id
         self.externalId = externalId
+        self.calendarItemId = calendarItemId
         self.title = title
         self.calendar = calendar
         self.startsAt = startsAt
@@ -177,6 +193,7 @@ public struct AgendaEvent: Codable, Sendable, Equatable, Identifiable {
         self.attendees = attendees
         self.birthdayContactId = birthdayContactId
         self.meetingURL = meetingURL
+        self.videoCall = videoCall
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
     }
@@ -202,6 +219,7 @@ extension AgendaEvent {
             endsAt: event.endDate ?? .distantFuture,
             isAllDay: event.isAllDay,
             externalId: event.calendarItemExternalIdentifier,
+            calendarItemId: event.calendarItemIdentifier.nilIfBlank,
             recurrence: event.recurrenceRules?.first.map(Recurrence.init),
             alarms: event.alarms?.map(AgendaAlarm.init) ?? [],
             isDetached: event.isDetached,
@@ -217,6 +235,11 @@ extension AgendaEvent {
             attendees: event.attendees?.map { AgendaAttendee($0, organizerURL: organizerURL) } ?? [],
             birthdayContactId: event.birthdayContactIdentifier,
             meetingURL: Agenda.meetingURL(
+                notes: event.notes,
+                location: event.location,
+                url: event.url?.absoluteString
+            ),
+            videoCall: Agenda.videoCall(
                 notes: event.notes,
                 location: event.location,
                 url: event.url?.absoluteString
