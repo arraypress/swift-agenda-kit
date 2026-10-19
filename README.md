@@ -95,6 +95,35 @@ Nothing here can fix it, and the failure is silent — an empty answer that is w
 exactly like an empty answer that is right. `agenda doctor` reports the gap by asking
 Calendar.app directly.
 
+**Not tags, sections, subtasks or smart lists either.** EventKit has no API for any of them.
+`RemindersStore.read()` reads them from Reminders' own store instead — `details(for: reminder.id)`
+gives `tags`, `section` and `parentID`; `sections` and `smartLists` (with their stored rules) come
+alongside:
+
+```swift
+let store = try RemindersStore.read()                 // throws ReminderStoreError
+store.details(for: reminder.id)?.tags                 // ["errands"]
+RemindersStore.join(eventKitIDs: ids, with: store)    // matched / eventKitOnly / storeOnly
+```
+
+- **Never in place.** Each `Data-*.sqlite` and its `-wal` are cloned (APFS) into a private 0700
+  folder and opened there with `query_only`; a read-only open of a live WAL database would still
+  write its read marks into Reminders' `-shm`.
+- **The layout is ReminderKit's own.** Its Core Data model (`ReminderData.momd`, v2026_A) was
+  loaded and a scratch store built from it: identical, column for column, to the live store. A
+  tag lives in `ZREMCDOBJECT` (`ZREMINDER3`, `ZNAME1`) — numbered columns Core Data can renumber
+  in a new model, which is why every required column is checked by name, entity numbers come
+  from `Z_PRIMARYKEY`, and `isKnownVersion` says whether the model is one checked here.
+- **Joined by identifier.** A row's 16-byte `ZIDENTIFIER` is EventKit's `calendarItemIdentifier`
+  (measured; `ZCKIDENTIFIER` and `ZDACALENDARITEMUNIQUEIDENTIFIER` matched too and are accepted as
+  aliases). Rows marked for deletion are skipped.
+- **Sections and smart-list rules were not seen live** — the store this was built against had
+  none. Section membership follows ReminderKit's field names (`memberships`, `memberID`,
+  `groupID`, `isObsolete`) and decodes leniently; rules are printed as stored, uninterpreted.
+- **Failures are typed**: `.missing`, `.notPermitted` (Full Disk Access), `.unknownSchema`
+  (naming the missing `TABLE.COLUMN`s), `.readFailed`. None should stop a caller showing what
+  EventKit returned.
+
 ## Swift 5 language mode
 
 Deliberate. `EKEventStore` is not `Sendable` and is legitimately one shared object for the
@@ -105,7 +134,8 @@ this can and do use Swift 6.
 
 ## Requirements
 
-macOS 15+, Swift 6.2 tools. EventKit and Foundation — nothing vendored, nothing fetched.
+macOS 15+, Swift 6.2 tools. EventKit, Foundation and the system SQLite — nothing vendored,
+nothing fetched. Reading the Reminders store needs Full Disk Access for the calling process.
 
 Calendar and Reminders are separate privacy permissions. `Agenda.access(to:)` reports each,
 and `requestAccess(to:)` prompts. A binary with no bundle has no usage strings for TCC to
@@ -114,10 +144,12 @@ with `-sectcreate __TEXT __info_plist`.
 
 ## Tested
 
-174 tests, none of which need a calendar: date and duration parsing, recurrence rules, alarm
+187 tests, none of which need a calendar or a real Reminders store: date and duration parsing, recurrence rules, alarm
 and location-alarm construction, time-zone handling, the search and edit filters, one
 invitation-shaped fixture per video-call service plus the wrappers, HTML and precedence around
-them, and every "open in" link as an exact string for a fixed instant in a pinned zone. The
+them, every "open in" link as an exact string for a fixed instant in a pinned zone, and the
+Reminders-store reader against a synthetic store built from the live schema (rows only in the
+log, deleted rows, a changed schema, a refused folder, the live files hashed before and after). The
 store itself is not mocked — what is tested is everything that decides *what* to ask it.
 
 ## Licence
