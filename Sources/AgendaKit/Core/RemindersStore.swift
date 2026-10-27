@@ -107,12 +107,12 @@ public enum RemindersStore {
 
         var part = StorePart()
         try database.query("select Z_PLIST from Z_METADATA limit 1") { row in
-            part.modelVersion = StoreSchema.modelVersion(row.data(0))
+            part.modelVersion = StoreSchema.modelVersion(row[0].nonEmptyData)
         }
 
         var entities: [String: Int64] = [:]
         try database.query("select Z_NAME, Z_ENT from Z_PRIMARYKEY") { row in
-            if let name = row.text(0), let ent = row.integer(1) { entities[name] = ent }
+            if let name = row[0].decodedString, let ent = row.integer(1) { entities[name] = ent }
         }
         let needed = [StoreSchema.Entity.list, StoreSchema.Entity.smartList,
                       StoreSchema.Entity.listSection, StoreSchema.Entity.hashtag]
@@ -129,14 +129,14 @@ public enum RemindersStore {
             from ZREMCDBASELIST where coalesce(ZMARKEDFORDELETION, 0) = 0
             """) { row in
             guard let pk = row.integer(0) else { return }
-            let id = StoreSchema.uuid(row.data(2)) ?? row.text(3)?.uppercased() ?? "list-\(pk)"
+            let id = StoreSchema.uuid(row[2].nonEmptyData) ?? row[3].decodedString?.uppercased() ?? "list-\(pk)"
             listIDs[pk] = id
             part.listCount += 1
-            memberships.merge(SectionMemberships.decode(row.data(5))) { _, new in new }
+            memberships.merge(SectionMemberships.decode(row[5].nonEmptyData)) { _, new in new }
             if row.integer(1) == entities[StoreSchema.Entity.smartList] {
-                part.smartLists.append(SmartList(id: id, name: row.text(4)?.nilIfBlank,
-                                                 kind: SmartListRules.kind(row.text(7)),
-                                                 rules: SmartListRules.decode(row.data(6))))
+                part.smartLists.append(SmartList(id: id, name: row[4].decodedString?.nilIfBlank,
+                                                 kind: SmartListRules.kind(row[7].decodedString),
+                                                 rules: SmartListRules.decode(row[6].nonEmptyData)))
             }
         }
 
@@ -147,10 +147,10 @@ public enum RemindersStore {
             where Z_ENT = ? and coalesce(ZMARKEDFORDELETION, 0) = 0
             """, [.integer(entities[StoreSchema.Entity.listSection]!)]) { row in
             guard let pk = row.integer(0) else { return }
-            let uuid = StoreSchema.uuid(row.data(1))
-            let ck = row.text(2)?.uppercased()
+            let uuid = StoreSchema.uuid(row[1].nonEmptyData)
+            let ck = row[2].decodedString?.uppercased()
             let section = ReminderSection(id: uuid ?? ck ?? "section-\(pk)",
-                                          name: row.text(3) ?? "Untitled",
+                                          name: row[3].decodedString ?? "Untitled",
                                           listID: row.integer(4).flatMap { listIDs[$0] })
             part.sections.append(section)
             for alias in [uuid, ck].compactMap({ $0 }) { sectionsByAlias[alias] = section }
@@ -165,7 +165,7 @@ public enum RemindersStore {
             order by o.Z_PK
             """, [.integer(entities[StoreSchema.Entity.hashtag]!)]) { row in
             guard let reminder = row.integer(0),
-                  let name = (row.text(1)?.nilIfBlank ?? row.text(2)?.nilIfBlank) else { return }
+                  let name = (row[1].decodedString?.nilIfBlank ?? row[2].decodedString?.nilIfBlank) else { return }
             let clean = name.hasPrefix("#") ? String(name.dropFirst()) : name
             if !(tags[reminder]?.contains(clean) ?? false) { tags[reminder, default: []].append(clean) }
         }
@@ -179,7 +179,7 @@ public enum RemindersStore {
             """) { row in
             guard let pk = row.integer(0) else { return }
             var aliases: [String] = []
-            for alias in [StoreSchema.uuid(row.data(1)), row.text(2)?.uppercased(), row.text(3)?.uppercased()] {
+            for alias in [StoreSchema.uuid(row[1].nonEmptyData), row[2].decodedString?.uppercased(), row[3].decodedString?.uppercased()] {
                 if let alias, !aliases.contains(alias) { aliases.append(alias) }
             }
             guard !aliases.isEmpty else { return }
@@ -214,4 +214,11 @@ public enum RemindersStore {
             storeCount: parts.count
         )
     }
+}
+
+private extension SQLiteRow {
+
+    /// An integer column read as the Reminders-store queries always have:
+    /// nil only for NULL, a real truncated, anything else 0.
+    func integer(_ index: Int) -> Int64? { self[index].isNull ? nil : Int64(self[index].truncatedInt ?? 0) }
 }

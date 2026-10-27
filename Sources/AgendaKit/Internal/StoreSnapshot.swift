@@ -34,7 +34,7 @@ enum StoreSnapshot {
             let before = signature(source)
             let reader: SQLiteReader
             do {
-                reader = try SQLiteReader(path: source, opening: .snapshot)
+                reader = try SQLiteReader(path: source, opening: .snapshot, busyTimeout: 2)
             } catch {
                 throw ReminderStoreError(error)
             }
@@ -43,7 +43,6 @@ enum StoreSnapshot {
                 continue
             }
             do {
-                _ = try reader.rows("PRAGMA busy_timeout = 2000")
                 _ = try reader.rows("PRAGMA query_only = 1")
             } catch {
                 throw ReminderStoreError(error)
