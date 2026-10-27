@@ -7,8 +7,8 @@
 //  Tags, sections, subtasks and smart lists — read from Reminders' own store,
 //  because EventKit has no API for any of them.
 //
-//  READ-ONLY, AND NEVER IN PLACE. Each store file is cloned with its log into a
-//  private folder and read there (see StoreSnapshot); Reminders' files are only
+//  READ-ONLY, AND NEVER IN PLACE. Each store file is copied with its log into a
+//  private folder by swift-sqlite-reader and read there (see StoreSnapshot); Reminders' files are only
 //  ever read as bytes. Nothing here writes, and there is no write path to add.
 //
 //  JOINED BY IDENTIFIER. A store row's 16-byte ZIDENTIFIER is the reminder's
@@ -18,6 +18,7 @@
 //
 
 import Foundation
+import SQLiteReader
 
 /// Reading the Reminders store.
 ///
@@ -50,8 +51,12 @@ public enum RemindersStore {
 
         var parts: [StorePart] = []
         for file in files {
-            let snapshot = try StoreSnapshot(of: folder.appendingPathComponent(file))
-            parts.append(try read(snapshot.database))
+            let database = try StoreSnapshot.open(folder.appendingPathComponent(file))
+            do {
+                parts.append(try read(database))
+            } catch let error as SQLiteReaderError {
+                throw ReminderStoreError(error)
+            }
         }
         return merge(parts)
     }
@@ -91,8 +96,13 @@ public enum RemindersStore {
         var holdsData: Bool { listCount > 0 || !reminders.isEmpty }
     }
 
-    static func read(_ database: StoreSQLite) throws -> StorePart {
-        let missing = StoreSchema.missing(try database.columns(of: Array(StoreSchema.required.keys)))
+    static func read(_ database: SQLiteReader) throws -> StorePart {
+        var columns: [String: Set<String>] = [:]      // a table that is absent is absent
+        for table in StoreSchema.required.keys {
+            let names = database.columns(of: table)
+            if !names.isEmpty { columns[table] = names }
+        }
+        let missing = StoreSchema.missing(columns)
         guard missing.isEmpty else { throw ReminderStoreError.unknownSchema(missing) }
 
         var part = StorePart()

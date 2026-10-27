@@ -11,9 +11,14 @@ let package = Package(
     products: [
         .library(name: "AgendaKit", targets: ["AgendaKit"]),
     ],
+    dependencies: [
+        // Reading the Reminders store from a private copy.
+        .package(url: "https://github.com/arraypress/swift-sqlite-reader.git", from: "0.1.0"),
+    ],
     targets: [
         .target(
             name: "AgendaKit",
+            dependencies: [.product(name: "SQLiteReader", package: "swift-sqlite-reader")],
             // SWIFT 5 LANGUAGE MODE, deliberately. `EKEventStore` is not `Sendable` and is
             // legitimately one shared object for the process — EventKit is built that way and
             // this library is single-threaded by design. Swift 6 mode makes that an error

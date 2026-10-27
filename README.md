@@ -106,9 +106,10 @@ store.details(for: reminder.id)?.tags                 // ["errands"]
 RemindersStore.join(eventKitIDs: ids, with: store)    // matched / eventKitOnly / storeOnly
 ```
 
-- **Never in place.** Each `Data-*.sqlite` and its `-wal` are cloned (APFS) into a private 0700
-  folder and opened there with `query_only`; a read-only open of a live WAL database would still
-  write its read marks into Reminders' `-shm`.
+- **Never in place.** Each `Data-*.sqlite` and its log are copied into a private folder by
+  [swift-sqlite-reader](https://github.com/arraypress/swift-sqlite-reader)'s `.snapshot` (again,
+  if the store changed mid-copy) and opened there with `query_only`; a read-only open of a live
+  WAL database would still write its read marks into Reminders' `-shm`.
 - **The layout is ReminderKit's own.** Its Core Data model (`ReminderData.momd`, v2026_A) was
   loaded and a scratch store built from it: identical, column for column, to the live store. A
   tag lives in `ZREMCDOBJECT` (`ZREMINDER3`, `ZNAME1`) — numbered columns Core Data can renumber
@@ -134,8 +135,8 @@ this can and do use Swift 6.
 
 ## Requirements
 
-macOS 15+, Swift 6.2 tools. EventKit, Foundation and the system SQLite — nothing vendored,
-nothing fetched. Reading the Reminders store needs Full Disk Access for the calling process.
+macOS 15+, Swift 6.2 tools. EventKit, Foundation and the system SQLite — nothing vendored;
+one dependency, swift-sqlite-reader. Reading the Reminders store needs Full Disk Access for the calling process.
 
 Calendar and Reminders are separate privacy permissions. `Agenda.access(to:)` reports each,
 and `requestAccess(to:)` prompts. A binary with no bundle has no usage strings for TCC to
